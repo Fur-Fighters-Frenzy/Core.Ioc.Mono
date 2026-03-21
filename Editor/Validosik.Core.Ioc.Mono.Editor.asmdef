@@ -1,0 +1,19 @@
+﻿{
+  "name": "Validosik.Core.Ioc.Mono.Editor",
+  "rootNamespace": "Validosik.Core.Ioc.Mono.Editor",
+  "references": [
+    "Validosik.Core.Ioc",
+    "Validosik.Core.Ioc.Mono"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

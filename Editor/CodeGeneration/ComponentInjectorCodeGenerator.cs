@@ -1,0 +1,291 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using UnityEditor;
+
+namespace Validosik.Core.Ioc.Mono.Editor.CodeGeneration
+{
+    internal static class ComponentInjectorCodeGenerator
+    {
+        private const string GeneratedFileSuffix = ".ContainableMono.g.cs";
+
+        public static void GenerateAll()
+        {
+            var descriptors = InjectableComponentScanner.Scan(out var warnings);
+            var expectedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var groups = descriptors.GroupBy(x => x.OutputDir, StringComparer.OrdinalIgnoreCase).ToArray();
+
+            foreach (var group in groups)
+            {
+                var assemblyName = group.First().ComponentType.Assembly.GetName().Name ?? "Default";
+                var injectorClassNames = new List<string>();
+
+                foreach (var descriptor in group)
+                {
+                    try
+                    {
+                        var className = BuildInjectorClassName(descriptor.ComponentType);
+                        var filePath = InjectableComponentScanner.NormalizeAssetPath(
+                            Path.Combine(group.Key, className + GeneratedFileSuffix));
+                        expectedFiles[filePath] = EmitInjector(className, descriptor);
+                        injectorClassNames.Add(className);
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add(
+                            "[Containable.Mono] Skipped '" + descriptor.ComponentType.FullName +
+                            "' during injector generation: " + ex.Message);
+                    }
+                }
+
+                if (injectorClassNames.Count == 0)
+                {
+                    continue;
+                }
+
+                var registryFileName = InjectableComponentScanner.SanitizeIdentifier(assemblyName) +
+                                       ".ComponentInjectors" + GeneratedFileSuffix;
+                var registryPath = InjectableComponentScanner.NormalizeAssetPath(Path.Combine(group.Key, registryFileName));
+                expectedFiles[registryPath] = EmitRegistry(assemblyName, injectorClassNames.ToArray());
+            }
+
+            DeleteStaleFiles(expectedFiles.Keys);
+            var changedFiles = WriteExpectedFiles(expectedFiles);
+
+            if (warnings.Count > 0)
+            {
+                for (var i = 0; i < warnings.Count; ++i)
+                {
+                    UnityEngine.Debug.LogWarning(warnings[i]);
+                }
+            }
+
+            if (changedFiles > 0)
+            {
+                AssetDatabase.Refresh();
+            }
+        }
+
+        private static int WriteExpectedFiles(IReadOnlyDictionary<string, string> expectedFiles)
+        {
+            var changedFiles = 0;
+
+            foreach (var pair in expectedFiles)
+            {
+                var absolutePath = ToAbsolutePath(pair.Key);
+                var directory = Path.GetDirectoryName(absolutePath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                if (File.Exists(absolutePath))
+                {
+                    var existing = File.ReadAllText(absolutePath);
+                    if (string.Equals(existing, pair.Value, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                }
+
+                File.WriteAllText(absolutePath, pair.Value, Encoding.UTF8);
+                changedFiles++;
+            }
+
+            return changedFiles;
+        }
+
+        private static void DeleteStaleFiles(IEnumerable<string> expectedFiles)
+        {
+            var expected = new HashSet<string>(expectedFiles.Select(NormalizeFullPath), StringComparer.OrdinalIgnoreCase);
+            var assetsAbsolutePath = Path.GetFullPath("Assets");
+            if (!Directory.Exists(assetsAbsolutePath))
+            {
+                return;
+            }
+
+            var existingFiles = Directory.GetFiles(assetsAbsolutePath, "*" + GeneratedFileSuffix, SearchOption.AllDirectories);
+            for (var i = 0; i < existingFiles.Length; ++i)
+            {
+                var existingFile = NormalizeFullPath(existingFiles[i]);
+                if (expected.Contains(existingFile))
+                {
+                    continue;
+                }
+
+                File.Delete(existingFile);
+                var metaPath = existingFiles[i] + ".meta";
+                if (File.Exists(metaPath))
+                {
+                    File.Delete(metaPath);
+                }
+            }
+        }
+
+        private static string EmitInjector(string className, InjectableComponentDescriptor descriptor)
+        {
+            var sb = new StringBuilder(1024);
+            sb.AppendLine("// <auto-generated /> DO NOT EDIT");
+            sb.AppendLine("using Validosik.Core.Ioc.Mono.Generated;");
+            sb.AppendLine();
+            sb.AppendLine("namespace Validosik.Core.Ioc.Mono.Generated");
+            sb.AppendLine("{");
+            sb.Append("    internal sealed class ").Append(className)
+                .Append(" : GeneratedComponentInjector<").Append(GetTypeReference(descriptor.ComponentType)).AppendLine(">"
+            );
+            sb.AppendLine("    {");
+            sb.Append("        protected override void InjectTyped(global::Validosik.Core.Ioc.ServiceContainerManager manager, ")
+                .Append(GetTypeReference(descriptor.ComponentType)).AppendLine(" component)");
+            sb.AppendLine("        {");
+            sb.Append("            component.").Append(descriptor.InjectMethod.Name).Append("(")
+                .Append(string.Join(", ", BuildParameterExpressions(descriptor.InjectMethod))).AppendLine(");");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        private static string EmitRegistry(string assemblyName, string[] injectorClassNames)
+        {
+            var className = InjectableComponentScanner.SanitizeIdentifier(assemblyName) + "_ContainableComponentInjectors";
+            var sb = new StringBuilder(1024);
+            sb.AppendLine("// <auto-generated /> DO NOT EDIT");
+            sb.AppendLine("using UnityEngine.Scripting;");
+            sb.AppendLine();
+            sb.AppendLine("namespace Validosik.Core.Ioc.Mono.Generated");
+            sb.AppendLine("{");
+            sb.AppendLine("    [Preserve]");
+            sb.Append("    internal static class ").Append(className).AppendLine();
+            sb.AppendLine("    {");
+            sb.AppendLine("        private static readonly IGeneratedComponentInjector[] _all = new IGeneratedComponentInjector[]");
+            sb.AppendLine("        {");
+
+            for (var i = 0; i < injectorClassNames.Length; ++i)
+            {
+                sb.Append("            new ").Append(injectorClassNames[i]).Append("()");
+                if (i + 1 < injectorClassNames.Length)
+                {
+                    sb.Append(",");
+                }
+
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("        };");
+            sb.AppendLine();
+            sb.Append("        static ").Append(className).AppendLine("()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            GeneratedComponentInjectorSource.Register(_all);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        [global::UnityEngine.RuntimeInitializeOnLoadMethod(global::UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]");
+            sb.AppendLine("        private static void Initialize()");
+            sb.AppendLine("        {");
+            sb.AppendLine("            _ = _all.Length;");
+            sb.AppendLine("            GeneratedComponentInjectorSource.Register(_all);");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        private static IEnumerable<string> BuildParameterExpressions(MethodInfo injectMethod)
+        {
+            var parameters = injectMethod.GetParameters();
+            for (var i = 0; i < parameters.Length; ++i)
+            {
+                yield return BuildParameterExpression(parameters[i].ParameterType);
+            }
+        }
+
+        private static string BuildParameterExpression(Type parameterType)
+        {
+            if (parameterType == null)
+            {
+                throw new ArgumentNullException(nameof(parameterType));
+            }
+
+            if (TryUnwrapSingleGeneric(parameterType, typeof(Func<>), out var funcType))
+            {
+                ValidateServiceType(funcType, parameterType);
+                return "manager.Resolve<" + GetTypeReference(funcType) + ">";
+            }
+
+            if (TryUnwrapSingleGeneric(parameterType, typeof(Lazy<>), out var lazyType))
+            {
+                ValidateServiceType(lazyType, parameterType);
+                return "new global::System.Lazy<" + GetTypeReference(lazyType) + ">(manager.Resolve<" +
+                       GetTypeReference(lazyType) + ">)";
+            }
+
+            ValidateServiceType(parameterType, parameterType);
+            return "manager.Resolve<" + GetTypeReference(parameterType) + ">()";
+        }
+
+        private static bool TryUnwrapSingleGeneric(Type candidate, Type genericDefinition, out Type innerType)
+        {
+            if (candidate.IsGenericType && candidate.GetGenericTypeDefinition() == genericDefinition)
+            {
+                innerType = candidate.GetGenericArguments()[0];
+                return true;
+            }
+
+            innerType = null;
+            return false;
+        }
+
+        private static void ValidateServiceType(Type serviceType, Type originalParameterType)
+        {
+            if (serviceType == null || serviceType.IsValueType || serviceType == typeof(string))
+            {
+                throw new InvalidOperationException(
+                    "Unsupported [Inject] parameter type '" + originalParameterType.FullName +
+                    "'. Only reference services, Func<T>, and Lazy<T> are supported.");
+            }
+        }
+
+        private static string BuildInjectorClassName(Type componentType)
+        {
+            var fullName = componentType.FullName ?? componentType.Name;
+            return InjectableComponentScanner.SanitizeIdentifier(fullName.Replace('.', '_').Replace('+', '_')) +
+                   "_ContainableInjector";
+        }
+
+        private static string GetTypeReference(Type type)
+        {
+            if (type == null)
+            {
+                throw new ArgumentNullException(nameof(type));
+            }
+
+            if (type.IsGenericType && !type.IsGenericTypeDefinition)
+            {
+                var genericDefinition = type.GetGenericTypeDefinition();
+                var genericTypeName = genericDefinition.FullName ?? genericDefinition.Name;
+                var backtickIndex = genericTypeName.IndexOf('`');
+                if (backtickIndex >= 0)
+                {
+                    genericTypeName = genericTypeName.Substring(0, backtickIndex);
+                }
+
+                var genericArguments = type.GetGenericArguments().Select(GetTypeReference);
+                return "global::" + genericTypeName.Replace("+", ".") + "<" + string.Join(", ", genericArguments) + ">";
+            }
+
+            return "global::" + (type.FullName ?? type.Name).Replace("+", ".");
+        }
+
+        private static string ToAbsolutePath(string assetPath)
+        {
+            return NormalizeFullPath(Path.GetFullPath(assetPath));
+        }
+
+        private static string NormalizeFullPath(string path)
+        {
+            return Path.GetFullPath(path).Replace("\\", "/");
+        }
+    }
+}

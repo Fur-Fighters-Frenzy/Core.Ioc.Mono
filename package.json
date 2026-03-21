@@ -1,0 +1,28 @@
+﻿{
+  "name": "validosik.core.ioc.mono",
+  "displayName": "IoC Mono Integration",
+  "version": "0.0.1",
+  "unity": "6000.0",
+  "description": "Optional Unity component injection layer for Validosik.Core.Ioc",
+  "author": {
+    "name": "validosik"
+  },
+  "dependencies": {
+    "validosik.core.ioc": "0.0.1"
+  },
+  "samples": [
+    {
+      "displayName": "Manual Mono Injection",
+      "description": "Manual container setup plus scene object, AddComponent, and prefab-root injection examples.",
+      "path": "Samples~/ManualMonoInjection"
+    }
+  ],
+  "keywords": [
+    "ioc",
+    "di",
+    "unity",
+    "monobehaviour",
+    "prefab",
+    "injection"
+  ]
+}

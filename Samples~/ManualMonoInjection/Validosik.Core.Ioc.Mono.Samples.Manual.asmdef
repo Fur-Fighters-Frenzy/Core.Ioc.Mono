@@ -1,0 +1,17 @@
+﻿{
+  "name": "Validosik.Core.Ioc.Mono.Samples.Manual",
+  "rootNamespace": "Validosik.Core.Ioc.Mono.Samples.Manual",
+  "references": [
+    "Validosik.Core.Ioc",
+    "Validosik.Core.Ioc.Mono"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
