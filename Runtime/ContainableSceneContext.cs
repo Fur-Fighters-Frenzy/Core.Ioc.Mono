@@ -11,8 +11,11 @@ namespace Validosik.Core.Ioc.Mono
     {
         [SerializeField] private string _containerKey = string.Empty;
         [SerializeField] private bool _publishAsDefaultSource = true;
+        [SerializeField] private bool _includeChildInstallers = true;
+        [SerializeField] private MonoInstaller[] _monoInstallers = Array.Empty<MonoInstaller>();
 
         private ServiceContainerManager _serviceContainerManager;
+        private bool _monoInstallersApplied;
 
         public ServiceContainerManager ServiceContainerManager
         {
@@ -26,6 +29,7 @@ namespace Validosik.Core.Ioc.Mono
         private void Awake()
         {
             EnsureInitialized();
+            ApplyMonoInstallers();
         }
 
         private void OnDestroy()
@@ -40,6 +44,12 @@ namespace Validosik.Core.Ioc.Mono
             {
                 ServiceContainerManagerSource.Provider = null;
             }
+        }
+
+        public void InstallBindings()
+        {
+            EnsureInitialized();
+            ApplyMonoInstallers();
         }
 
         private void EnsureInitialized()
@@ -60,6 +70,40 @@ namespace Validosik.Core.Ioc.Mono
             {
                 ServiceContainerManagerSource.Provider = () => _serviceContainerManager;
             }
+        }
+
+        private void ApplyMonoInstallers()
+        {
+            if (_monoInstallersApplied)
+            {
+                return;
+            }
+
+            var installers = GetMonoInstallers();
+            for (var i = 0; i < installers.Length; i++)
+            {
+                var installer = installers[i];
+                if (installer == null)
+                {
+                    continue;
+                }
+
+                installer.InstallBindings(_serviceContainerManager);
+            }
+
+            _monoInstallersApplied = true;
+        }
+
+        private MonoInstaller[] GetMonoInstallers()
+        {
+            if (_monoInstallers != null && _monoInstallers.Length > 0)
+            {
+                return _monoInstallers;
+            }
+
+            return _includeChildInstallers
+                ? GetComponentsInChildren<MonoInstaller>(true)
+                : GetComponents<MonoInstaller>();
         }
     }
 }

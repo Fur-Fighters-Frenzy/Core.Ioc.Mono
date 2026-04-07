@@ -7,6 +7,7 @@ This module adds:
 - generated component injectors for `MonoBehaviour`
 - `ContainableInjectRoot` for cached prefab subtree injection
 - `ContainableSceneContext` as a lightweight runtime provider
+- `MonoInstaller` support for manual runtime bindings
 - instantiation and `AddComponent` wrappers that trigger injection
 
 ## Current Scope
@@ -15,28 +16,28 @@ This module adds:
 - runtime uses no `MethodInfo.Invoke`, `FieldInfo.SetValue`, or assembly scanning
 - only components from `Assets/` are supported for injector generation in this first iteration
 - injector methods should use `[Inject]` and be `public`, `internal`, or `protected internal`
+- manual scene bindings can be registered through `MonoInstaller`
 
 ## Example
 
 ```csharp
 using UnityEngine;
-using Validosik.Core.Ioc.Attributes;
+using Validosik.Core.Ioc;
+using Validosik.Core.Ioc.Mono;
 
-public sealed class PlayerHud : MonoBehaviour
+public sealed class HudInstaller : MonoInstaller
 {
-    private IHealthService _healthService;
-    private IInputService _inputService;
+    [SerializeField] private PlayerHud _hud;
 
-    [Inject]
-    internal void Construct(IHealthService healthService, IInputService inputService)
+    public override void InstallBindings(ServiceContainerManager container)
     {
-        _healthService = healthService;
-        _inputService = inputService;
+        container.RegisterInstance<IHud>(_hud);
+        container.RegisterInstance(_hud);
     }
 }
 ```
 
-The editor generates an injector class into the same assembly as the component and updates prefab roots with `ContainableInjectRoot`.
+Attach the installer to the same GameObject as `ContainableSceneContext` or place it in a child object if `Include Child Installers` is enabled.
 
 ---
 
